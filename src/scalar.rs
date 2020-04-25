@@ -4,7 +4,7 @@
 use core::convert::TryFrom;
 use core::fmt;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-
+use rand::{CryptoRng, Rng};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 use crate::util::{adc, mac, sbb};
@@ -186,6 +186,23 @@ impl Scalar {
     pub const fn double(&self) -> Scalar {
         // TODO: This can be achieved more efficiently with a bitshift.
         self.add(self)
+    }
+
+    /// Generate a valid Scalar choosen uniformly using user-
+    /// provided rng.
+    ///
+    /// By `rng` we mean any Rng that implements: `Rng` + `CryptoRng`.
+    pub fn random<T>(rand: &mut T) -> Scalar
+    where
+        T: Rng + CryptoRng,
+    {
+        let mut bytes = [0u8; 32];
+        rand.fill_bytes(&mut bytes);
+        // Ensure that the value is lower than `MODULUS`.
+        // Since modulus has 254-bits or less, we cut our bytes
+        // to get cannonical Scalars.
+        bytes[31] &= 0b0011_1111;
+        Scalar::from_bytes(&bytes).unwrap()
     }
 
     /// Attempts to convert a little-endian byte representation of
@@ -1073,4 +1090,18 @@ fn test_double() {
     ]);
 
     assert_eq!(a.double(), a + a);
+}
+
+#[test]
+fn random_scalar_generation() {
+    // That verifies that inside random() we're appliying the truncation correctly.
+    let mut bytes = [
+        0xffu8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff,
+    ];
+    assert!(Scalar::from_bytes(&bytes).is_none().unwrap_u8() == 1u8);
+    // Truncate to 254 bits and try again
+    bytes[31] &= 0b0011_1111;
+    assert!(Scalar::from_bytes(&bytes).is_some().unwrap_u8() == 1u8);
 }
